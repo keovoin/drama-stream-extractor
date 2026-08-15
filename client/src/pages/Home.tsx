@@ -93,7 +93,7 @@ export default function Home() {
                   <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[#e6b569]">Episode archive</p>
                   <h1 className="mt-6 max-w-sm font-serif text-5xl leading-[0.94] tracking-[-0.05em] text-[#f7f1e7]">Stream URLs,<br /><span className="text-[#d8aa63]">distilled.</span></h1>
                 </div>
-                <p className="max-w-xs border-l border-[#e2b569]/70 pl-5 text-sm leading-6 text-[#bfc3cb]">Paste a compatible series-detail URL. The extractor checks every episode and prepares one Excel workbook.</p>
+                <p className="max-w-xs border-l border-[#e2b569]/70 pl-5 text-sm leading-6 text-[#bfc3cb]">DramaBox is stable. iDrama is beta and may ask you to retry if the source site blocks verification. Both export to the same Excel workbook.</p>
               </div>
             </div>
 
@@ -104,7 +104,7 @@ export default function Home() {
                   <h1 className="mt-4 font-serif text-4xl tracking-[-0.04em] text-[#f7f1e7]">Stream URLs, distilled.</h1>
                 </div>
                 <div className="mb-9">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#d8aa63]">DramaBox / DramaFren</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#d8aa63]">DramaBox stable · iDrama beta</p>
                   <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">Create your episode workbook</h2>
                 </div>
 
@@ -112,7 +112,7 @@ export default function Home() {
                   <label htmlFor="series-url" className="sr-only">Series detail URL</label>
                   <div className="group flex items-center gap-3 rounded-2xl border border-white/12 bg-black/20 px-4 py-3 transition-colors focus-within:border-[#e2b569]/80 focus-within:bg-black/30">
                     <Link2 className="h-5 w-5 shrink-0 text-[#d8aa63]" aria-hidden="true" />
-                    <Input id="series-url" value={url} onChange={event => setUrl(event.target.value)} placeholder="Paste the series-detail URL" className="h-auto border-0 bg-transparent px-0 text-[15px] text-white shadow-none placeholder:text-[#717784] focus-visible:ring-0" disabled={isWorking} required />
+                    <Input id="series-url" value={url} onChange={event => setUrl(event.target.value)} placeholder="Paste a DramaBox detail or iDrama watch URL" className="h-auto border-0 bg-transparent px-0 text-[15px] text-white shadow-none placeholder:text-[#717784] focus-visible:ring-0" disabled={isWorking} required />
                   </div>
                   <Button type="submit" disabled={isWorking || !url.trim()} className="h-12 w-full rounded-xl bg-[#e2b569] text-[15px] font-bold text-[#19140b] shadow-[0_12px_30px_rgba(226,181,105,0.18)] transition-all hover:bg-[#f1c780] hover:shadow-[0_16px_36px_rgba(226,181,105,0.26)] active:scale-[0.985] disabled:bg-[#6d624b]">
                     {isWorking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}

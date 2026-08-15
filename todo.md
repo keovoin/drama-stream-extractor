@@ -15,3 +15,13 @@
 - [x] Compare Vercel and free hosting options for the protected server-side extraction workflow.
 - [x] Prepare the private GitHub repository for Render deployment, including build, runtime, and secret instructions.
 - [x] Push the validated Render configuration and deployment guide to the private GitHub repository.
+- [ ] Inspect and support compatible extraction formats for idrama.dramafren.org, shortwave.dramafren.org, dramafren.org, and reelfren.dramafren.org.
+- [ ] Update the URL validation, player adapters, workbook metadata, and interface guidance for the supported DramaFren-family domains.
+- [ ] Test the supplied URLs and push the multi-domain update to the private GitHub repository.
+- [x] Inspect the supplied iDrama watch-page URL for a repeatable, supported player-data pattern.
+- [x] Add iDrama watch-page parsing, episode detection, and HLS source extraction alongside the existing DramaBox adapter.
+- [x] Label iDrama as beta in the shared URL input guidance and extraction status.
+- [x] Convert iDrama verification timeouts into a clear retry message while retaining stable DramaBox extraction.
+- [x] Re-confirm stable DramaBox extraction after the beta update and verify the iDrama beta retry guidance in automated coverage.
+- [ ] Browser-test the iDrama retry message during a source-site verification block when that condition is reproducible.
+- [ ] Commit and push the beta-enabled iDrama/DramaBox update to the private GitHub repository.

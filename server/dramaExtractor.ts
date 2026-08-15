@@ -1,13 +1,19 @@
 import { chromium, type Browser, type Page } from "playwright-core";
 import * as XLSX from "xlsx";
 
-const DETAIL_HOST = "dramabox.dramafren.org";
+const DRAMABOX_HOST = "dramabox.dramafren.org";
+const IDRAMA_HOST = "idrama.dramafren.org";
 const ANCHOR_API_BASE = "https://api.anchorbrowser.io/v1";
 
+export type StreamProvider = "dramabox" | "idrama";
+
 export type CompatibleSeries = {
+  provider: StreamProvider;
   detailUrl: string;
   dramaId: string;
   lang: string;
+  server: number;
+  initialEpisode: number;
 };
 
 export type EpisodeResult = {
@@ -24,6 +30,7 @@ export type SeriesConnection = {
   page: Page;
   series: CompatibleSeries;
   total: number;
+  initialVideoSource?: string;
 };
 
 type AnchorSession = {
@@ -47,23 +54,42 @@ export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
     throw new Error("Enter a valid DramaBox/DramaFren series-detail URL.");
   }
 
-  const dramaId = url.searchParams.get("id");
-  const isCompatible =
+  const dramaId = url.searchParams.get("id")?.trim();
+  const hasNumericId = Boolean(dramaId && /^\d+$/.test(dramaId));
+  const lang = url.searchParams.get("lang")?.trim() || "en";
+
+  if (
     url.protocol === "https:" &&
-    url.hostname === DETAIL_HOST &&
+    url.hostname === DRAMABOX_HOST &&
     url.pathname === "/index.php" &&
     url.searchParams.get("page") === "detail" &&
-    Boolean(dramaId && /^\d+$/.test(dramaId));
-
-  if (!isCompatible || !dramaId) {
-    throw new Error("Use a DramaBox/DramaFren series-detail URL with page=detail and an id parameter.");
+    hasNumericId &&
+    dramaId
+  ) {
+    return { provider: "dramabox", detailUrl: url.toString(), dramaId, lang, server: 1, initialEpisode: 1 };
   }
 
-  return {
-    detailUrl: url.toString(),
-    dramaId,
-    lang: url.searchParams.get("lang")?.trim() || "en",
-  };
+  if (
+    url.protocol === "https:" &&
+    url.hostname === IDRAMA_HOST &&
+    url.pathname === "/index.php" &&
+    url.searchParams.get("page") === "watch" &&
+    hasNumericId &&
+    dramaId
+  ) {
+    const server = Number.parseInt(url.searchParams.get("server") || "1", 10);
+    const initialEpisode = Number.parseInt(url.searchParams.get("ep") || "1", 10);
+    return {
+      provider: "idrama",
+      detailUrl: url.toString(),
+      dramaId,
+      lang,
+      server: Number.isInteger(server) && server > 0 ? server : 1,
+      initialEpisode: Number.isInteger(initialEpisode) && initialEpisode > 0 ? initialEpisode : 1,
+    };
+  }
+
+  throw new Error("Use a DramaBox series-detail URL or an iDrama watch URL with a numeric id parameter.");
 }
 
 export function parseEpisodeCount(pageText: string): number {
@@ -76,13 +102,71 @@ export function parseEpisodeCount(pageText: string): number {
 }
 
 export function buildPlayerApiUrl(series: CompatibleSeries, episode: number): string {
-  const endpoint = new URL(`https://${DETAIL_HOST}/index.php`);
+  const endpoint = new URL(`https://${series.provider === "idrama" ? IDRAMA_HOST : DRAMABOX_HOST}/index.php`);
+  if (series.provider === "idrama") {
+    endpoint.searchParams.set("page", "watch");
+    endpoint.searchParams.set("id", series.dramaId);
+    endpoint.searchParams.set("ep", String(episode));
+    endpoint.searchParams.set("server", String(series.server));
+    endpoint.searchParams.set("lang", series.lang);
+    return endpoint.toString();
+  }
   endpoint.searchParams.set("action", "get_video");
   endpoint.searchParams.set("id", series.dramaId);
   endpoint.searchParams.set("ep", String(episode));
   endpoint.searchParams.set("lang", series.lang);
   endpoint.searchParams.set("sv", "1");
   return endpoint.toString();
+}
+
+export function parseIdramaEpisodeCount(episodeLinks: string[]): number {
+  const episodes = episodeLinks
+    .map(href => Number.parseInt(new URL(href, `https://${IDRAMA_HOST}`).searchParams.get("ep") || "", 10))
+    .filter(episode => Number.isInteger(episode) && episode > 0 && episode <= 500);
+  const total = episodes.length > 0 ? Math.max(...episodes) : Number.NaN;
+  if (!Number.isInteger(total)) throw new Error("The iDrama episode selector could not be detected from this watch page.");
+  return total;
+}
+
+export function extractIdramaVideoSource(scriptText: string): string {
+  const match = scriptText.match(/var\s+videoSrc\s*=\s*["']([^"']+)["']/i);
+  if (!match?.[1]) throw new Error("The iDrama watch page did not expose a playable HLS source.");
+  return match[1].replace(/\\\//g, "/").replace(/&amp;/g, "&");
+}
+
+export function idramaRetryMessage(pageText: string): string | null {
+  if (/just a moment|performing security verification|cloudflare/i.test(pageText)) {
+    return "iDrama beta is temporarily blocked by the source site's verification page. Please wait a moment and retry the same link.";
+  }
+  return null;
+}
+
+async function readIdramaVideoSource(page: Page): Promise<string> {
+  const scriptText = (await page.locator("script:not([src])").allTextContents()).join("\n");
+  try {
+    return extractIdramaVideoSource(scriptText);
+  } catch {
+    const mediaSource = await page.evaluate(() => {
+      const video = document.querySelector("video") as HTMLVideoElement | null;
+      return video?.currentSrc || video?.src || "";
+    });
+    if (mediaSource) return mediaSource;
+    throw new Error("The iDrama watch page did not expose a playable HLS source.");
+  }
+}
+
+async function waitForIdramaVideoSource(page: Page): Promise<string> {
+  const deadline = Date.now() + 30_000;
+  let lastError: Error | undefined;
+  while (Date.now() < deadline) {
+    try {
+      return await readIdramaVideoSource(page);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      await page.waitForTimeout(1_500);
+    }
+  }
+  throw lastError ?? new Error("The iDrama watch page did not expose a playable HLS source.");
 }
 
 export function normalizeEpisodePayload(
@@ -115,7 +199,7 @@ export function createWorkbookBase64(episodes: EpisodeResult[]): string {
 }
 
 export function makeWorkbookFileName(): string {
-  return `dramabox-stream-urls-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  return `drama-stream-urls-${new Date().toISOString().slice(0, 10)}.xlsx`;
 }
 
 async function requestAnchor<T>(path: string, init: RequestInit): Promise<T> {
@@ -164,6 +248,33 @@ export async function openSeriesConnection(rawUrl: string): Promise<SeriesConnec
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(series.detailUrl, { waitUntil: "domcontentloaded", timeout: 120_000 });
 
+    if (series.provider === "idrama") {
+      try {
+        await page.waitForFunction(
+          () => document.querySelectorAll('#sheet-episodes a[href*="page=watch"][href*="ep="]').length > 0,
+          undefined,
+          { timeout: 120_000 },
+        );
+      } catch (error) {
+        const pageText = await page.locator("body").innerText().catch(() => "");
+        const retryMessage = idramaRetryMessage(pageText);
+        if (retryMessage) throw new Error(retryMessage);
+        throw error;
+      }
+      const episodeLinks = await page.locator('#sheet-episodes a[href*="page=watch"][href*="ep="]').evaluateAll(
+        links => links.map(link => (link as HTMLAnchorElement).href),
+      );
+      const initialVideoSource = await waitForIdramaVideoSource(page).catch(() => undefined);
+      return {
+        sessionId: session.id,
+        browser,
+        page,
+        series,
+        total: parseIdramaEpisodeCount(episodeLinks),
+        initialVideoSource,
+      };
+    }
+
     const readyBy = Date.now() + 120_000;
     let pageText = "";
     while (Date.now() < readyBy) {
@@ -187,6 +298,31 @@ export async function fetchEpisodeFromConnection(
 ): Promise<EpisodeResult> {
   const playerApiUrl = buildPlayerApiUrl(connection.series, episode);
   try {
+    if (connection.series.provider === "idrama") {
+      if (episode === connection.series.initialEpisode && connection.initialVideoSource) {
+        return {
+          episode,
+          streamUrl: connection.initialVideoSource,
+          qualityLabel: `Server ${connection.series.server} - iDrama`,
+          playerApiUrl,
+          status: "Verified",
+        };
+      }
+      const pageHtml = await connection.page.evaluate(async endpoint => {
+        const response = await fetch(endpoint, { credentials: "same-origin" });
+        const body = await response.text();
+        if (!response.ok) throw new Error(`iDrama watch page returned HTTP ${response.status}`);
+        return body;
+      }, playerApiUrl);
+      return {
+        episode,
+        streamUrl: extractIdramaVideoSource(pageHtml),
+        qualityLabel: `Server ${connection.series.server} - iDrama`,
+        playerApiUrl,
+        status: "Verified",
+      };
+    }
+
     const payload = await connection.page.evaluate(async endpoint => {
       const response = await fetch(endpoint, {
         credentials: "same-origin",
