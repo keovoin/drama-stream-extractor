@@ -9,4 +9,4 @@
 - [x] Build the polished single-page interface with only the URL form, extraction progress, errors, and download action.
 - [x] Add unit tests for URL parsing, episode-count detection, response handling, and workbook rows.
 - [x] Verify the completed flow and responsive interface in the browser.
-- [ ] Export the completed project to a private GitHub repository for personal use.
+- [x] Export the completed project to a private GitHub repository for personal use.
