@@ -23,6 +23,7 @@
 - The page currently exposes a WordPress-style series page with an `Episodes` section and a single visible `EP 1` / `FULL EPISODE` link.
 - It appears to be a third-party episode index rather than a multi-episode provider detail page. The linked full-episode destination must be inspected before deciding whether a multi-episode adapter is appropriate.
 - The supplied full-episode page embeds a single external `player.abyssplayer.com` iframe. It does not expose an in-page multi-episode API or a verified direct media URL.
+- The supplied `/watch/a-lock-to-find-my-daughter/#/` page likewise renders a single embedded watch experience rather than a source-site episode list. Its current player state shows a continue-watching prompt, so the page does not provide a supported in-page full-series extraction surface.
 
 ## ReelFren
 

@@ -48,6 +48,9 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     expect(() => parseCompatibleSeriesUrl("https://shortwave.dramafren.org/?id=6a7c0db4f0cf754ca9d95c7e")).toThrow(
       "ShortWave requires watching at least one minute",
     );
+    expect(() => parseCompatibleSeriesUrl("https://dramafren.org/watch/a-lock-to-find-my-daughter/#/")).toThrow(
+      "one third-party player embed",
+    );
     expect(() => parseCompatibleSeriesUrl("not-a-url")).toThrow("Enter a valid");
   });
 

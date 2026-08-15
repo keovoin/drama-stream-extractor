@@ -26,3 +26,5 @@
 - [x] Expose the iDrama beta retry guidance in the browser and cover verification-block message mapping in automated tests. (A live blocked state was not reproducible in the final session.)
 - [x] Commit and push the beta-enabled iDrama/DramaBox update to the private GitHub repository.
 - [x] Recognize ShortWave series pages and explain that the source site’s previous-episode watch-time gate prevents automated full-series URL extraction without bypassing that restriction.
+- [x] Inspect the supplied DramaFren watch-page URL for a compatible, non-bypass episode stream-data pattern and add support only if reliable. (The supplied page is a single third-party Episode 1 embed, not a multi-episode endpoint.)
+- [x] Restore the managed deployment startup entry point while preserving the separate Render deployment configuration.

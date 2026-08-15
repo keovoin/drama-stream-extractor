@@ -3,8 +3,8 @@ services:
     name: drama-stream-extractor-private
     runtime: node
     plan: free
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
-    startCommand: pnpm start
+    buildCommand: pnpm install --frozen-lockfile && pnpm build:render
+    startCommand: pnpm start:render
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
