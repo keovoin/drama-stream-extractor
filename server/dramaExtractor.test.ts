@@ -45,6 +45,9 @@ describe("DramaBox/DramaFren extractor helpers", () => {
 
   it("rejects unsupported or incomplete detail URLs", () => {
     expect(() => parseCompatibleSeriesUrl("https://example.com/video")).toThrow("Use a DramaBox series-detail URL or an iDrama watch URL");
+    expect(() => parseCompatibleSeriesUrl("https://shortwave.dramafren.org/?id=6a7c0db4f0cf754ca9d95c7e")).toThrow(
+      "ShortWave requires watching at least one minute",
+    );
     expect(() => parseCompatibleSeriesUrl("not-a-url")).toThrow("Enter a valid");
   });
 

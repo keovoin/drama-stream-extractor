@@ -25,3 +25,4 @@
 - [x] Re-confirm stable DramaBox extraction after the beta update and verify the iDrama beta retry guidance in automated coverage.
 - [x] Expose the iDrama beta retry guidance in the browser and cover verification-block message mapping in automated tests. (A live blocked state was not reproducible in the final session.)
 - [x] Commit and push the beta-enabled iDrama/DramaBox update to the private GitHub repository.
+- [x] Recognize ShortWave series pages and explain that the source site’s previous-episode watch-time gate prevents automated full-series URL extraction without bypassing that restriction.

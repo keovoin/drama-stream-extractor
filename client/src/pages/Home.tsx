@@ -114,6 +114,7 @@ export default function Home() {
                     <Link2 className="h-5 w-5 shrink-0 text-[#d8aa63]" aria-hidden="true" />
                     <Input id="series-url" value={url} onChange={event => setUrl(event.target.value)} placeholder="Paste a DramaBox detail or iDrama watch URL" className="h-auto border-0 bg-transparent px-0 text-[15px] text-white shadow-none placeholder:text-[#717784] focus-visible:ring-0" disabled={isWorking} required />
                   </div>
+                  <p className="text-xs leading-5 text-[#8d93a0]">ShortWave links are detected, but not extracted automatically because its episode gate requires prior viewing time.</p>
                   <Button type="submit" disabled={isWorking || !url.trim()} className="h-12 w-full rounded-xl bg-[#e2b569] text-[15px] font-bold text-[#19140b] shadow-[0_12px_30px_rgba(226,181,105,0.18)] transition-all hover:bg-[#f1c780] hover:shadow-[0_16px_36px_rgba(226,181,105,0.26)] active:scale-[0.985] disabled:bg-[#6d624b]">
                     {isWorking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                     {isWorking ? "Extracting episodes" : "Extract stream URLs"}

@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 
 const DRAMABOX_HOST = "dramabox.dramafren.org";
 const IDRAMA_HOST = "idrama.dramafren.org";
+const SHORTWAVE_HOST = "shortwave.dramafren.org";
 const ANCHOR_API_BASE = "https://api.anchorbrowser.io/v1";
 
 export type StreamProvider = "dramabox" | "idrama";
@@ -57,6 +58,12 @@ export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
   const dramaId = url.searchParams.get("id")?.trim();
   const hasNumericId = Boolean(dramaId && /^\d+$/.test(dramaId));
   const lang = url.searchParams.get("lang")?.trim() || "en";
+
+  if (url.protocol === "https:" && url.hostname === SHORTWAVE_HOST && url.searchParams.get("id")) {
+    throw new Error(
+      "ShortWave requires watching at least one minute of each previous episode before the next episode unlocks. This tool cannot automate full-series extraction without bypassing that source-site restriction.",
+    );
+  }
 
   if (
     url.protocol === "https:" &&
