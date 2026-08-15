@@ -17,6 +17,35 @@
 - The verified browser session renders the 32-episode list and native player controls, but the initial player remains in a buffering state and does not expose playback metadata in the accessible page content.
 - Selecting episode 2 shows an explicit site gate requiring at least one minute of the preceding episode before playback proceeds. The extractor will not bypass this access restriction.
 
+## StardustTV
+
+- Supplied detail URL: `https://stardusttv.dramafren.org/index.php?page=detail&id=20117&slug=call-me-trash-now-i-rule-you-all&lang=en`
+- The detail page exposes a visible `Total: 73 Eps` label, a `Start Watching` control, and links for all episodes 1 through 73. The published per-episode route is `index.php?page=watch&id=20117&slug=call-me-trash-now-i-rule-you-all&ep=<episode>&lang=en`.
+- The captured watch-page markup shows a browser-created `blob:` player source rather than a direct media URL. It also enforces a source-side rule requiring at least one minute of the previous episode before the next episode plays.
+- **Conclusion:** The series navigation is compatible in shape, but automated full-series extraction would conflict with the page’s prior-episode viewing gate. It is not a suitable adapter candidate through the observed non-bypass flow.
+
+## ShortMax
+
+- Supplied detail URL: `https://shortmax.dramafren.org/index.php?page=detail&id=858629&lang=en`
+- The page renders `Total: 23 Eps`, labels the available server `Primary`, and exposes individual links for episodes 1 through 23. Its public episode-one route is `index.php?page=watch&id=858629&ep=1&lang=en`.
+- The watch page exposes 23 episode selectors, a ready primary server and a backup server, but its player remains at `0:00` and does not display a direct source URL or transparent per-episode API in the rendered page state.
+- The captured markup does provide the source contract: it renders a per-episode HLS URL and requests server data from `https://cdn-shortmax.dramafren.org/index.php?action=video_server&server=<server>&id=<id>&ep=<episode>&lang=<lang>`. The response is expected to include `playUrl`, fallbacks, and quality options.
+- **Conclusion:** This is a strong candidate for a dedicated adapter. Its per-episode route and structured server request are visible, though no adapter was added in this review.
+
+## MoboReels
+
+- Supplied detail URL: `https://moboreels.dramafren.org/?id=62386322&slug=the-betrayed-heirs-bloody-comeback`
+- The page completes loading with a visible native video control, previous/next controls, and an episode selector for 55 episodes. It therefore has an appropriate high-level series shape, but the readable player page does not expose a direct source or a repeatable per-episode request format yet.
+- The page’s own script requests `?api_route=video&lang=<lang>&id=<seriesId>&episNum=<episode>` and receives structured media data. The episode-one request was verified to return `data.mediaUrl`.
+- **Conclusion:** This is a strong candidate for a dedicated adapter; its public player flow supplies a transparent structured media response for each episode.
+
+## ReelFren
+
+- Supplied watch URL: `https://reelfren.dramafren.org/watch/vibeshort/858389-the-path-to-immortality?ep=1&lang=en`
+- The page renders an Episode Matrix and selectable episodes 1 through 60, plus one listed server and a quality control. However, the visible player remains at `0 Episode` with no media source shown after loading; the `Force Retry` control is a source-site recovery action and was not used during this passive review.
+- Captured markup shows a browser-created `blob:` video source and serialized episode inventory, but not a direct media URL or transparent per-episode resolver. The underlying React source request was not available from the passive page state.
+- **Conclusion:** It is not ready for an adapter based on the observed non-bypass path; its actual media resolver needs provider-authorized documentation or a stable visible request contract.
+
 ## DramaFren
 
 - Sample series URL: `https://dramafren.org/series/a-lock-to-find-my-daughter/`

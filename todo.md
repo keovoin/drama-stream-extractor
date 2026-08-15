@@ -28,3 +28,7 @@
 - [x] Recognize ShortWave series pages and explain that the source site’s previous-episode watch-time gate prevents automated full-series URL extraction without bypassing that restriction.
 - [x] Inspect the supplied DramaFren watch-page URL for a compatible, non-bypass episode stream-data pattern and add support only if reliable. (The supplied page is a single third-party Episode 1 embed, not a multi-episode endpoint.)
 - [x] Restore the managed deployment startup entry point while preserving the separate Render deployment configuration.
+- [x] Review the supplied StardustTV, ShortMax, MoboReels, and ReelFren pages for episode structure, player behavior, and non-bypass extraction feasibility without implementing new adapters.
+- [x] Inspect the StardustTV and ShortMax watch paths for a repeatable non-bypass per-episode source pattern or a definitive unsupported condition. (ShortMax exposes a structured server endpoint; StardustTV blocks later episodes behind a previous-episode watch-time gate.)
+- [x] Inspect the MoboReels and ReelFren player behavior for a repeatable non-bypass per-episode source pattern or a definitive unsupported condition. (MoboReels exposes a structured video endpoint; ReelFren does not expose a direct media resolver in the observed page state.)
+- [x] Record definitive compatibility conclusions for all four supplied domains without adding new adapters.
