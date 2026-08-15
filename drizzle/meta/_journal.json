@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786775226667,
+      "tag": "0000_hard_william_stryker",
+      "breakpoints": true
+    }
+  ]
 }
