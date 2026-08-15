@@ -10,3 +10,8 @@
 - [x] Add unit tests for URL parsing, episode-count detection, response handling, and workbook rows.
 - [x] Verify the completed flow and responsive interface in the browser.
 - [x] Export the completed project to a private GitHub repository for personal use.
+- [x] Provide private hosting guidance for the completed extractor.
+- [x] Assess and prepare a compatible external hosting route from the private GitHub repository.
+- [x] Compare Vercel and free hosting options for the protected server-side extraction workflow.
+- [x] Prepare the private GitHub repository for Render deployment, including build, runtime, and secret instructions.
+- [ ] Push the validated Render configuration and deployment guide to the private GitHub repository.

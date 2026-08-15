@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: drama-stream-extractor-private
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANCHOR_API_KEY
+        sync: false
+      - key: APP_ACCESS_PASSWORD
+        sync: false
