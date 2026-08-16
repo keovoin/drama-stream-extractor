@@ -216,6 +216,10 @@ export function summarizeEpisodeResults(episodes: EpisodeResult[]): ExtractionSu
   return { verified, unavailable: episodes.length - verified };
 }
 
+export function replaceEpisodeResult(episodes: EpisodeResult[], replacement: EpisodeResult): EpisodeResult[] {
+  return episodes.map(episode => (episode.episode === replacement.episode ? replacement : episode));
+}
+
 export function createWorkbookBase64(episodes: EpisodeResult[]): string {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet([

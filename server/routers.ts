@@ -11,12 +11,14 @@ import {
   makeWorkbookFileName,
   openSeriesConnection,
   parseCompatibleSeriesUrl,
+  replaceEpisodeResult,
   summarizeEpisodeResults,
   type EpisodeResult,
   type SeriesConnection,
 } from "./dramaExtractor";
 
 type ExtractionState = "processing" | "completed" | "failed";
+type ExtractionMode = "initial" | "retry";
 
 type ExtractionJob = {
   id: string;
@@ -28,6 +30,12 @@ type ExtractionJob = {
   connection: SeriesConnection | null;
   workbookBase64: string | null;
   fileName: string | null;
+  sourceUrl: string;
+  mode: ExtractionMode;
+  runCompleted: number;
+  runTotal: number;
+  retryEpisodes: number[];
+  revision: number;
 };
 
 const extractionJobs = new Map<string, ExtractionJob>();
@@ -44,6 +52,10 @@ function progressResponse(job: ExtractionJob) {
     completed: job.completed,
     total: job.total,
     error: job.error,
+    mode: job.mode,
+    runCompleted: job.runCompleted,
+    runTotal: job.runTotal,
+    revision: job.revision,
     ...summarizeEpisodeResults(job.episodes),
   };
 }
@@ -94,8 +106,26 @@ export const appRouter = router({
           connection,
           workbookBase64: null,
           fileName: null,
+          sourceUrl: input.url,
+          mode: "initial",
+          runCompleted: 0,
+          runTotal: connection.total,
+          retryEpisodes: [],
+          revision: 0,
         });
-        return { jobId: id, completed: 0, total: connection.total, state: "processing" as const, error: null, verified: 0, unavailable: 0 };
+        return {
+          jobId: id,
+          completed: 0,
+          total: connection.total,
+          state: "processing" as const,
+          error: null,
+          mode: "initial" as const,
+          runCompleted: 0,
+          runTotal: connection.total,
+          revision: 0,
+          verified: 0,
+          unavailable: 0,
+        };
       }),
     advance: publicProcedure
       .input(z.object({ jobId: z.string().uuid() }))
@@ -106,16 +136,48 @@ export const appRouter = router({
         }
 
         try {
-          const nextEpisode = job.completed + 1;
-          job.episodes.push(await fetchEpisodeFromConnection(job.connection, nextEpisode));
-          job.completed = nextEpisode;
-          if (job.completed === job.total) await finishJob(job);
+          const nextEpisode = job.mode === "retry" ? job.retryEpisodes[job.runCompleted] : job.completed + 1;
+          if (!nextEpisode) throw new Error("The retry queue did not contain another episode.");
+
+          const result = await fetchEpisodeFromConnection(job.connection, nextEpisode);
+          if (job.mode === "retry") {
+            job.episodes = replaceEpisodeResult(job.episodes, result);
+          } else {
+            job.episodes.push(result);
+            job.completed = nextEpisode;
+          }
+          job.runCompleted += 1;
+          if (job.runCompleted === job.runTotal) await finishJob(job);
         } catch (error) {
           await failJob(job, error);
         }
         return progressResponse(job);
       }),
-    download: publicProcedure.input(z.object({ jobId: z.string().uuid() })).query(({ input }) => {
+    retryFailed: publicProcedure
+      .input(z.object({ jobId: z.string().uuid() }))
+      .mutation(async ({ input }) => {
+        const job = getJob(input.jobId);
+        if (job.state !== "completed") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Wait for the current extraction to finish before retrying unavailable rows." });
+        }
+
+        const retryEpisodes = job.episodes.filter(episode => !episode.streamUrl).map(episode => episode.episode);
+        if (retryEpisodes.length === 0) return progressResponse(job);
+
+        const connection = await openSeriesConnection(job.sourceUrl);
+        job.connection = connection;
+        job.state = "processing";
+        job.error = null;
+        job.mode = "retry";
+        job.runCompleted = 0;
+        job.runTotal = retryEpisodes.length;
+        job.retryEpisodes = retryEpisodes;
+        job.revision += 1;
+        job.workbookBase64 = null;
+        job.fileName = null;
+        return progressResponse(job);
+      }),
+    download: publicProcedure.input(z.object({ jobId: z.string().uuid(), revision: z.number().int().min(0).optional() })).query(({ input }) => {
       const job = getJob(input.jobId);
       if (job.state !== "completed" || !job.workbookBase64 || !job.fileName) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The Excel file is not ready yet." });

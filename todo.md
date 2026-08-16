@@ -35,3 +35,9 @@
 - [x] Diagnose DramaBox long-series runs that begin retrying mid-extraction and leave later stream-URL cells blank. (The previous flow had no explicit per-episode timeout, retry cap, or visible partial-results summary.)
 - [x] Add bounded recovery, preserved partial workbook rows, and clear per-episode failure status for mid-series DramaBox retrieval interruptions.
 - [x] Test a long DramaBox run to verify later episodes do not enter an unbounded retry loop. (The 60-episode regression completed with 60 URLs captured.)
+- [x] Add a retry-failed-rows-only API flow that preserves successful rows and replaces only unavailable episodes.
+- [x] Add a retry-failed-rows-only control with progress and refreshed workbook feedback.
+- [x] Test the retry-only flow and confirm the regenerated workbook retains successful URLs. (Unit coverage confirms replacement preserves existing successful rows; type checking and all 9 tests pass.)
+- [ ] Create a deterministic failed-row scenario for end-to-end retry-only validation.
+- [x] Add integration coverage for the retry-failed-rows job flow and regenerated workbook.
+- [ ] Browser-test retry-only progress and verify the regenerated workbook retains successful rows.

@@ -10,6 +10,10 @@ type ProgressState = {
   completed: number;
   total: number;
   error: string | null;
+  mode: "initial" | "retry";
+  runCompleted: number;
+  runTotal: number;
+  revision: number;
   verified: number;
   unavailable: number;
 };
@@ -34,8 +38,10 @@ export default function Home() {
   const [downloaded, setDownloaded] = useState(false);
   const start = trpc.extract.start.useMutation();
   const advance = trpc.extract.advance.useMutation();
+  const retryFailed = trpc.extract.retryFailed.useMutation();
+  const utils = trpc.useUtils();
   const download = trpc.extract.download.useQuery(
-    { jobId: progressState?.jobId ?? "00000000-0000-0000-0000-000000000000" },
+    { jobId: progressState?.jobId ?? "00000000-0000-0000-0000-000000000000", revision: progressState?.revision ?? 0 },
     { enabled: progressState?.state === "completed", retry: false, refetchOnWindowFocus: false },
   );
 
@@ -59,10 +65,10 @@ export default function Home() {
   }, [advance, advance.isPending, progressState]);
 
   useEffect(() => {
-    if (!download.data || downloaded) return;
+    if (!download.data || downloaded || progressState?.state !== "completed") return;
     downloadWorkbook(download.data.base64, download.data.fileName);
     setDownloaded(true);
-  }, [download.data, downloaded]);
+  }, [download.data, downloaded, progressState?.state]);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -80,6 +86,22 @@ export default function Home() {
   const isWorking = start.isPending || progressState?.state === "processing";
   const hasFailed = progressState?.state === "failed";
   const canDownload = progressState?.state === "completed" && Boolean(download.data);
+  const retryingRows = progressState?.state === "processing" && progressState.mode === "retry";
+  const visibleCompleted = retryingRows ? progressState.runCompleted : progressState?.completed;
+  const visibleTotal = retryingRows ? progressState.runTotal : progressState?.total;
+  const canRetryFailedRows = canDownload && Boolean(progressState?.unavailable) && !retryFailed.isPending;
+
+  const retryUnavailableRows = async () => {
+    if (!progressState) return;
+    setFormError(null);
+    try {
+      const next = await retryFailed.mutateAsync({ jobId: progressState.jobId });
+      setDownloaded(false);
+      setProgressState(current => (current ? { ...current, ...next } : current));
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "The unavailable rows could not be retried. Please try again.");
+    }
+  };
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#0d1017] text-[#f7f1e7]">
@@ -125,9 +147,9 @@ export default function Home() {
 
                 {(isWorking || hasFailed || canDownload || formError) && (
                   <div className="mt-8 border-t border-white/10 pt-7" aria-live="polite">
-                    {isWorking && <><div className="mb-3 flex items-center justify-between text-sm"><span className="font-medium text-[#ece7dd]">{start.isPending && !progressState ? "Detecting episodes" : "Collecting stream URLs"}</span><span className="tabular-nums text-[#d8aa63]">{progressState ? `${progressState.completed} / ${progressState.total}` : "Preparing"}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#e2b569] transition-[width] duration-500" style={{ width: `${Math.max(progress, 4)}%` }} /></div></>}
+                    {isWorking && <><div className="mb-3 flex items-center justify-between text-sm"><span className="font-medium text-[#ece7dd]">{start.isPending && !progressState ? "Detecting episodes" : retryingRows ? "Retrying unavailable stream URLs" : "Collecting stream URLs"}</span><span className="tabular-nums text-[#d8aa63]">{progressState ? `${visibleCompleted} / ${visibleTotal}` : "Preparing"}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#e2b569] transition-[width] duration-500" style={{ width: `${Math.max(retryingRows && visibleTotal ? Math.round(((visibleCompleted ?? 0) / visibleTotal) * 100) : progress, 4)}%` }} /></div></>}
                     {(formError || hasFailed) && <div className="flex items-start gap-3 rounded-xl border border-[#e58c81]/35 bg-[#e58c81]/10 p-4 text-sm text-[#ffd7d1]"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><p>{formError || progressState?.error}</p></div>}
-                    {canDownload && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3 text-sm text-[#e6eadf]"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#9fcaa5]/15 text-[#a9d8af]"><Check className="h-4 w-4" /></span><span>Workbook ready — {progressState?.verified ?? 0} URLs captured{progressState?.unavailable ? `; ${progressState.unavailable} episode${progressState.unavailable === 1 ? "" : "s"} marked unavailable in Excel.` : "."}</span></div><Button type="button" onClick={() => downloadWorkbook(download.data!.base64, download.data!.fileName)} className="h-10 rounded-xl bg-white px-5 text-sm font-bold text-[#141820] hover:bg-[#f7f1e7] active:scale-[0.985]"><ArrowDownToLine className="h-4 w-4" />Download Excel</Button></div>}
+                    {canDownload && <div className="flex flex-col gap-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3 text-sm text-[#e6eadf]"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#9fcaa5]/15 text-[#a9d8af]"><Check className="h-4 w-4" /></span><span>Workbook ready — {progressState?.verified ?? 0} URLs captured{progressState?.unavailable ? `; ${progressState.unavailable} episode${progressState.unavailable === 1 ? "" : "s"} marked unavailable in Excel.` : "."}</span></div><Button type="button" onClick={() => downloadWorkbook(download.data!.base64, download.data!.fileName)} className="h-10 rounded-xl bg-white px-5 text-sm font-bold text-[#141820] hover:bg-[#f7f1e7] active:scale-[0.985]"><ArrowDownToLine className="h-4 w-4" />Download Excel</Button></div>{canRetryFailedRows && <Button type="button" variant="outline" onClick={retryUnavailableRows} disabled={retryFailed.isPending} className="h-10 self-start rounded-xl border-[#e2b569]/60 bg-transparent px-5 text-sm font-bold text-[#f3d39a] hover:bg-[#e2b569]/10 hover:text-[#fff0ce] active:scale-[0.985]">Retry {progressState!.unavailable} failed row{progressState!.unavailable === 1 ? "" : "s"} only</Button>}</div>}
                   </div>
                 )}
               </div>

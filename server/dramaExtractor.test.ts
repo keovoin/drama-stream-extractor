@@ -8,6 +8,7 @@ import {
   parseCompatibleSeriesUrl,
   parseEpisodeCount,
   parseIdramaEpisodeCount,
+  replaceEpisodeResult,
   shouldRetryDramaBoxPayload,
   summarizeEpisodeResults,
 } from "./dramaExtractor";
@@ -89,5 +90,23 @@ describe("DramaBox/DramaFren extractor helpers", () => {
       { episode: 2, streamUrl: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts: Player request timed out" },
     ]);
     expect(summary).toEqual({ verified: 1, unavailable: 1 });
+  });
+
+  it("replaces only a retried failed row while retaining previously captured URLs", () => {
+    const original = [
+      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
+      { episode: 2, streamUrl: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts" },
+    ];
+    const retried = replaceEpisodeResult(original, {
+      episode: 2,
+      streamUrl: "https://cdn.example.com/episode-2.mp4",
+      qualityLabel: "Server 1",
+      playerApiUrl: "https://api.example.com/2",
+      status: "Verified after 2 attempts",
+    });
+
+    expect(retried[0].streamUrl).toBe(original[0].streamUrl);
+    expect(retried[1].status).toBe("Verified after 2 attempts");
+    expect(summarizeEpisodeResults(retried)).toEqual({ verified: 2, unavailable: 0 });
   });
 });
