@@ -8,6 +8,8 @@ import {
   parseCompatibleSeriesUrl,
   parseEpisodeCount,
   parseIdramaEpisodeCount,
+  shouldRetryDramaBoxPayload,
+  summarizeEpisodeResults,
 } from "./dramaExtractor";
 
 describe("DramaBox/DramaFren extractor helpers", () => {
@@ -75,5 +77,17 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     expect(verified.qualityLabel).toBe("Server 1 720p");
     expect(failed.status).toBe("Video unavailable");
     expect(createWorkbookBase64([verified, failed])).toMatch(/^UEsDB/);
+  });
+
+  it("retries only empty DramaBox player responses and summarizes partial results", () => {
+    expect(shouldRetryDramaBoxPayload({ ok: true, videoUrl: "https://cdn.example.com/episode-1.mp4" })).toBe(false);
+    expect(shouldRetryDramaBoxPayload({ ok: true, videoUrl: "" })).toBe(true);
+    expect(shouldRetryDramaBoxPayload({ ok: false, error: "Player request timed out" })).toBe(true);
+
+    const summary = summarizeEpisodeResults([
+      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
+      { episode: 2, streamUrl: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts: Player request timed out" },
+    ]);
+    expect(summary).toEqual({ verified: 1, unavailable: 1 });
   });
 });

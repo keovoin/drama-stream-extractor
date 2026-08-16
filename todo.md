@@ -32,3 +32,6 @@
 - [x] Inspect the StardustTV and ShortMax watch paths for a repeatable non-bypass per-episode source pattern or a definitive unsupported condition. (ShortMax exposes a structured server endpoint; StardustTV blocks later episodes behind a previous-episode watch-time gate.)
 - [x] Inspect the MoboReels and ReelFren player behavior for a repeatable non-bypass per-episode source pattern or a definitive unsupported condition. (MoboReels exposes a structured video endpoint; ReelFren does not expose a direct media resolver in the observed page state.)
 - [x] Record definitive compatibility conclusions for all four supplied domains without adding new adapters.
+- [x] Diagnose DramaBox long-series runs that begin retrying mid-extraction and leave later stream-URL cells blank. (The previous flow had no explicit per-episode timeout, retry cap, or visible partial-results summary.)
+- [x] Add bounded recovery, preserved partial workbook rows, and clear per-episode failure status for mid-series DramaBox retrieval interruptions.
+- [x] Test a long DramaBox run to verify later episodes do not enter an unbounded retry loop. (The 60-episode regression completed with 60 URLs captured.)

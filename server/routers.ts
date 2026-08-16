@@ -11,6 +11,7 @@ import {
   makeWorkbookFileName,
   openSeriesConnection,
   parseCompatibleSeriesUrl,
+  summarizeEpisodeResults,
   type EpisodeResult,
   type SeriesConnection,
 } from "./dramaExtractor";
@@ -35,6 +36,16 @@ function getJob(jobId: string): ExtractionJob {
   const job = extractionJobs.get(jobId);
   if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "This extraction has expired. Please start again." });
   return job;
+}
+
+function progressResponse(job: ExtractionJob) {
+  return {
+    state: job.state,
+    completed: job.completed,
+    total: job.total,
+    error: job.error,
+    ...summarizeEpisodeResults(job.episodes),
+  };
 }
 
 async function finishJob(job: ExtractionJob) {
@@ -84,14 +95,14 @@ export const appRouter = router({
           workbookBase64: null,
           fileName: null,
         });
-        return { jobId: id, completed: 0, total: connection.total, state: "processing" as const, error: null };
+        return { jobId: id, completed: 0, total: connection.total, state: "processing" as const, error: null, verified: 0, unavailable: 0 };
       }),
     advance: publicProcedure
       .input(z.object({ jobId: z.string().uuid() }))
       .mutation(async ({ input }) => {
         const job = getJob(input.jobId);
         if (job.state !== "processing" || !job.connection) {
-          return { state: job.state, completed: job.completed, total: job.total, error: job.error };
+          return progressResponse(job);
         }
 
         try {
@@ -102,7 +113,7 @@ export const appRouter = router({
         } catch (error) {
           await failJob(job, error);
         }
-        return { state: job.state, completed: job.completed, total: job.total, error: job.error };
+        return progressResponse(job);
       }),
     download: publicProcedure.input(z.object({ jobId: z.string().uuid() })).query(({ input }) => {
       const job = getJob(input.jobId);

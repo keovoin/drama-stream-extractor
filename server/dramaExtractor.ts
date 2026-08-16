@@ -26,6 +26,11 @@ export type EpisodeResult = {
   status: string;
 };
 
+export type ExtractionSummary = {
+  verified: number;
+  unavailable: number;
+};
+
 export type SeriesConnection = {
   sessionId: string;
   browser: Browser;
@@ -47,6 +52,9 @@ type PlayerPayload = {
   error?: string;
   qualities?: Array<{ quality?: string; url?: string }>;
 };
+
+const DRAMABOX_MAX_ATTEMPTS = 3;
+const DRAMABOX_REQUEST_TIMEOUT_MS = 20_000;
 
 export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
   let url: URL;
@@ -199,6 +207,15 @@ export function normalizeEpisodePayload(
   return { episode, streamUrl, qualityLabel, playerApiUrl, status: "Verified" };
 }
 
+export function shouldRetryDramaBoxPayload(payload: PlayerPayload): boolean {
+  return !payload.ok || !payload.videoUrl?.trim();
+}
+
+export function summarizeEpisodeResults(episodes: EpisodeResult[]): ExtractionSummary {
+  const verified = episodes.filter(episode => Boolean(episode.streamUrl) && episode.status.startsWith("Verified")).length;
+  return { verified, unavailable: episodes.length - verified };
+}
+
 export function createWorkbookBase64(episodes: EpisodeResult[]): string {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet([
@@ -337,19 +354,58 @@ export async function fetchEpisodeFromConnection(
       };
     }
 
-    const payload = await connection.page.evaluate(async endpoint => {
-      const response = await fetch(endpoint, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      const body = await response.text();
+    let lastResult: EpisodeResult | undefined;
+    for (let attempt = 1; attempt <= DRAMABOX_MAX_ATTEMPTS; attempt += 1) {
       try {
-        return JSON.parse(body) as PlayerPayload;
-      } catch {
-        return { ok: false, error: `Unexpected response (HTTP ${response.status})` } as PlayerPayload;
+        const payload = await connection.page.evaluate(
+          async ({ endpoint, timeoutMs }) => {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+            try {
+              const response = await fetch(endpoint, {
+                credentials: "same-origin",
+                headers: { Accept: "application/json" },
+                signal: controller.signal,
+              });
+              const body = await response.text();
+              try {
+                return JSON.parse(body) as PlayerPayload;
+              } catch {
+                return { ok: false, error: `Unexpected response (HTTP ${response.status})` } as PlayerPayload;
+              }
+            } catch (error) {
+              return {
+                ok: false,
+                error: error instanceof Error && error.name === "AbortError" ? "Player request timed out" : "Player request was interrupted",
+              } as PlayerPayload;
+            } finally {
+              window.clearTimeout(timeoutId);
+            }
+          },
+          { endpoint: playerApiUrl, timeoutMs: DRAMABOX_REQUEST_TIMEOUT_MS },
+        );
+        const normalized = normalizeEpisodePayload(episode, playerApiUrl, payload);
+        lastResult = normalized;
+        if (!shouldRetryDramaBoxPayload(payload)) {
+          return attempt === 1 ? normalized : { ...normalized, status: `Verified after ${attempt} attempts` };
+        }
+      } catch (error) {
+        lastResult = {
+          episode,
+          streamUrl: "",
+          qualityLabel: "Server 1",
+          playerApiUrl,
+          status: error instanceof Error ? error.message : "Episode request failed",
+        };
       }
-    }, playerApiUrl);
-    return normalizeEpisodePayload(episode, playerApiUrl, payload);
+
+      if (attempt < DRAMABOX_MAX_ATTEMPTS) await connection.page.waitForTimeout(650 * attempt);
+    }
+
+    return {
+      ...(lastResult ?? { episode, streamUrl: "", qualityLabel: "Server 1", playerApiUrl, status: "Episode request failed" }),
+      status: `Unavailable after ${DRAMABOX_MAX_ATTEMPTS} attempts: ${lastResult?.status ?? "Episode request failed"}`,
+    };
   } catch (error) {
     return {
       episode,
