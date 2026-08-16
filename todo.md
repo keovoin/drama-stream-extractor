@@ -38,6 +38,8 @@
 - [x] Add a retry-failed-rows-only API flow that preserves successful rows and replaces only unavailable episodes.
 - [x] Add a retry-failed-rows-only control with progress and refreshed workbook feedback.
 - [x] Test the retry-only flow and confirm the regenerated workbook retains successful URLs. (Unit coverage confirms replacement preserves existing successful rows; type checking and all 9 tests pass.)
-- [ ] Create a deterministic failed-row scenario for end-to-end retry-only validation.
+- [x] Create a deterministic failed-row scenario for end-to-end retry-only validation.
 - [x] Add integration coverage for the retry-failed-rows job flow and regenerated workbook.
-- [ ] Browser-test retry-only progress and verify the regenerated workbook retains successful rows.
+- [x] Browser-test retry-only progress and verify the regenerated workbook retains successful rows.
+- [x] Inspect the regenerated retry-only workbook to confirm successful rows are unchanged and the unavailable row is updated.
+- [x] Confirm temporary retry-demo hooks are absent from the shipped application before the final checkpoint.

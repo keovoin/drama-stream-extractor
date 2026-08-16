@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 import type { TrpcContext } from "./_core/context";
 import type { EpisodeResult, SeriesConnection } from "./dramaExtractor";
 
@@ -77,5 +78,13 @@ describe("extract.retryFailed", () => {
     expect(retried).toMatchObject({ state: "completed", verified: 2, unavailable: 0, revision: 1 });
     expect(extractorMocks.fetchEpisodeFromConnection.mock.calls.map(call => call[1])).toEqual([1, 2, 2]);
     expect(workbook.base64).toMatch(/^UEsDB/);
+    const sheet = XLSX.read(workbook.base64, { type: "base64" }).Sheets["Stream URLs"];
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1 });
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([1, "https://cdn.example.com/episode-1.mp4"]),
+        expect.arrayContaining([2, "https://cdn.example.com/episode-2.mp4"]),
+      ]),
+    );
   });
 });

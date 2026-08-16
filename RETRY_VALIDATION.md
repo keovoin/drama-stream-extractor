@@ -1,0 +1,3 @@
+# Retry-only validation
+
+The retry-only workflow was exercised in a temporary development-only controlled scenario and then the temporary hooks were removed. The browser first displayed a completed workbook with one captured URL and one unavailable episode, plus the **Retry 1 failed row only** action. Activating that action displayed **Retrying unavailable stream URLs · 0 / 1**, then completed with **2 URLs captured** and no remaining retry action. The permanent implementation is also covered by the router-level retry integration test, which confirms that successful rows remain unchanged while the unavailable row is replaced and the workbook is regenerated.
