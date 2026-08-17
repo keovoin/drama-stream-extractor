@@ -43,3 +43,7 @@
 - [x] Browser-test retry-only progress and verify the regenerated workbook retains successful rows.
 - [x] Inspect the regenerated retry-only workbook to confirm successful rows are unchanged and the unavailable row is updated.
 - [x] Confirm temporary retry-demo hooks are absent from the shipped application before the final checkpoint.
+- [x] Review the supplied DramaFren watch page and ShortMax detail page for supported stream and episode-source patterns. (DramaFren is a single external embed; ShortMax is currently blocked by source-site verification.)
+- [x] Diagnose reported high-load extraction failures and determine whether the current bounded retry behavior needs supported tuning. (No current source failure reproduced; sequential capped retries and retry-only recovery remain appropriate.)
+- [x] Inspect source metadata for available subtitle tracks and explain why the exported stream URLs may not include subtitles. (The supported payloads expose primary media URLs, not subtitle-track metadata.)
+- [x] Confirm the current hosted release and private GitHub repository include the retry-only update. (Published checkpoint and GitHub `main` are both at `bb542c0`.)
