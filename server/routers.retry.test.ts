@@ -23,10 +23,11 @@ import { appRouter } from "./routers";
 
 const sourceUrl = "https://dramabox.dramafren.org/index.php?page=detail&id=42000023494&lang=en";
 
-function episodeResult(episode: number, streamUrl: string, status: string): EpisodeResult {
+function episodeResult(episode: number, streamUrl: string, status: string, subtitleTracks = ""): EpisodeResult {
   return {
     episode,
     streamUrl,
+    subtitleTracks,
     qualityLabel: "Server 1",
     playerApiUrl: `https://dramabox.dramafren.org/index.php?action=get_video&id=42000023494&ep=${episode}&lang=en&sv=1`,
     status,
@@ -49,14 +50,26 @@ describe("extract.retryFailed", () => {
   });
 
   it("retries only unavailable rows and regenerates the workbook without replacing successful URLs", async () => {
-    const connection = { sessionId: "test-session", browser: {}, page: {}, series: {}, total: 2 } as SeriesConnection;
+    const connection = {
+      sessionId: "test-session",
+      browser: {},
+      page: {},
+      series: {},
+      title: "Retry Test Drama",
+      metadata: {
+        title: "Retry Test Drama",
+        description: "A source-published test description.",
+        coverImageUrl: "https://images.example.com/retry-test-cover.jpg",
+      },
+      total: 2,
+    } as SeriesConnection;
     let openedSessions = 0;
     extractorMocks.openSeriesConnection.mockImplementation(async () => {
       openedSessions += 1;
       return connection;
     });
     extractorMocks.fetchEpisodeFromConnection.mockImplementation(async (_connection: SeriesConnection, episode: number) => {
-      if (episode === 1) return episodeResult(1, "https://cdn.example.com/episode-1.mp4", "Verified");
+      if (episode === 1) return episodeResult(1, "https://cdn.example.com/episode-1.mp4", "Verified", "en: https://cdn.example.com/episode-1.en.srt");
       return openedSessions === 1
         ? episodeResult(2, "", "Unavailable after 3 attempts: Player request timed out")
         : episodeResult(2, "https://cdn.example.com/episode-2.mp4", "Verified after 2 attempts");
@@ -80,11 +93,19 @@ describe("extract.retryFailed", () => {
     expect(workbook.base64).toMatch(/^UEsDB/);
     const sheet = XLSX.read(workbook.base64, { type: "base64" }).Sheets["Stream URLs"];
     const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1 });
+    expect(rows[0]).toContain("Subtitle Tracks");
     expect(rows).toEqual(
       expect.arrayContaining([
-        expect.arrayContaining([1, "https://cdn.example.com/episode-1.mp4"]),
+        expect.arrayContaining([1, "https://cdn.example.com/episode-1.mp4", "en: https://cdn.example.com/episode-1.en.srt"]),
         expect.arrayContaining([2, "https://cdn.example.com/episode-2.mp4"]),
       ]),
     );
+    const seriesInfoSheet = XLSX.read(workbook.base64, { type: "base64" }).Sheets["Series Info"];
+    const seriesInfoRows = XLSX.utils.sheet_to_json<(string | number)[]>(seriesInfoSheet, { header: 1 });
+    expect(seriesInfoRows).toEqual(expect.arrayContaining([
+      ["Title", "Retry Test Drama"],
+      ["Description", "A source-published test description."],
+      ["Cover image URL", "https://images.example.com/retry-test-cover.jpg"],
+    ]));
   });
 });

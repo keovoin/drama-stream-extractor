@@ -21,6 +21,7 @@ export type CompatibleSeries = {
 export type EpisodeResult = {
   episode: number;
   streamUrl: string;
+  subtitleTracks: string;
   qualityLabel: string;
   playerApiUrl: string;
   status: string;
@@ -31,11 +32,20 @@ export type ExtractionSummary = {
   unavailable: number;
 };
 
+export type SeriesMetadata = {
+  title: string;
+  description: string;
+  coverImageUrl: string;
+  sourcePageUrl: string;
+};
+
 export type SeriesConnection = {
   sessionId: string;
   browser: Browser;
   page: Page;
   series: CompatibleSeries;
+  title: string;
+  metadata: SeriesMetadata;
   total: number;
   initialVideoSource?: string;
 };
@@ -51,6 +61,7 @@ type PlayerPayload = {
   sourceLabel?: string;
   error?: string;
   qualities?: Array<{ quality?: string; url?: string }>;
+  subtitles?: Array<{ subtitleLanguage?: string; language?: string; label?: string; url?: string; src?: string }>;
 };
 
 const DRAMABOX_MAX_ATTEMPTS = 3;
@@ -199,12 +210,25 @@ export function normalizeEpisodePayload(
   const streamUrl = payload.videoUrl?.trim() ?? "";
   const matchingQuality = payload.qualities?.find(item => item.url === streamUrl)?.quality?.trim();
   const qualityLabel = matchingQuality || payload.sourceLabel?.trim() || "Server 1";
+  const subtitleTracks = formatSubtitleTracks(payload.subtitles);
 
   if (!payload.ok || !streamUrl) {
-    return { episode, streamUrl: "", qualityLabel, playerApiUrl, status: payload.error?.trim() || "Stream URL unavailable" };
+    return { episode, streamUrl: "", subtitleTracks, qualityLabel, playerApiUrl, status: payload.error?.trim() || "Stream URL unavailable" };
   }
 
-  return { episode, streamUrl, qualityLabel, playerApiUrl, status: "Verified" };
+  return { episode, streamUrl, subtitleTracks, qualityLabel, playerApiUrl, status: "Verified" };
+}
+
+export function formatSubtitleTracks(subtitles?: PlayerPayload["subtitles"]): string {
+  if (!subtitles?.length) return "";
+  return subtitles
+    .map(track => {
+      const url = track.url?.trim() || track.src?.trim() || "";
+      const language = track.subtitleLanguage?.trim() || track.language?.trim() || track.label?.trim() || "Subtitle";
+      return url ? `${language}: ${url}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function shouldRetryDramaBoxPayload(payload: PlayerPayload): boolean {
@@ -220,21 +244,128 @@ export function replaceEpisodeResult(episodes: EpisodeResult[], replacement: Epi
   return episodes.map(episode => (episode.episode === replacement.episode ? replacement : episode));
 }
 
-export function createWorkbookBase64(episodes: EpisodeResult[]): string {
+export function createWorkbookBase64(episodes: EpisodeResult[], metadata?: Partial<SeriesMetadata>): string {
   const workbook = XLSX.utils.book_new();
+  const informationSheet = XLSX.utils.aoa_to_sheet([
+    ["Series information", "Value"],
+    ["Title", metadata?.title?.trim() || "Drama"],
+    ["Description", metadata?.description?.trim() || ""],
+    ["Cover image URL", metadata?.coverImageUrl?.trim() || ""],
+    ["Source page URL", metadata?.sourcePageUrl?.trim() || ""],
+  ]);
+  informationSheet["!cols"] = [{ wch: 24 }, { wch: 110 }];
+  informationSheet["!autofilter"] = { ref: "A1:B5" };
+  XLSX.utils.book_append_sheet(workbook, informationSheet, "Series Info");
+
   const sheet = XLSX.utils.aoa_to_sheet([
-    ["Episode", "Stream URL", "Quality / Server", "Player API URL", "Status"],
-    ...episodes.map(item => [item.episode, item.streamUrl, item.qualityLabel, item.playerApiUrl, item.status]),
+    ["Episode", "Stream URL", "Subtitle Tracks", "Quality / Server", "Player API URL", "Status"],
+    ...episodes.map(item => [item.episode, item.streamUrl, item.subtitleTracks, item.qualityLabel, item.playerApiUrl, item.status]),
   ]);
 
-  sheet["!cols"] = [{ wch: 10 }, { wch: 90 }, { wch: 26 }, { wch: 78 }, { wch: 28 }];
-  sheet["!autofilter"] = { ref: `A1:E${episodes.length + 1}` };
+  sheet["!cols"] = [{ wch: 10 }, { wch: 90 }, { wch: 74 }, { wch: 26 }, { wch: 78 }, { wch: 28 }];
+  sheet["!autofilter"] = { ref: `A1:F${episodes.length + 1}` };
   XLSX.utils.book_append_sheet(workbook, sheet, "Stream URLs");
   return XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
 }
 
-export function makeWorkbookFileName(): string {
-  return `drama-stream-urls-${new Date().toISOString().slice(0, 10)}.xlsx`;
+export function makeWorkbookFileName(seriesTitle?: string): string {
+  const safeTitle = (seriesTitle || "drama")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, 96);
+  return `${safeTitle || "drama"}-stream-urls.xlsx`;
+}
+
+export function titleFromSlug(series: CompatibleSeries): string {
+  const slug = new URL(series.detailUrl).searchParams.get("slug")?.trim();
+  if (!slug) return "Drama";
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+async function readSeriesTitle(page: Page, series: CompatibleSeries): Promise<string> {
+  const heading = await page.locator("h1").first().innerText().catch(() => "");
+  const pageTitle = await page.title().catch(() => "");
+  const candidate = (heading || pageTitle || "").replace(/\s+/g, " ").replace(/\s*[|–-]\s*(DramaBox|iDrama).*$/i, "").trim();
+  if (candidate && !/^(dramabox|idrama|dramabox\.dramafren\.org|idrama\.dramafren\.org)$/i.test(candidate)) return candidate;
+  return titleFromSlug(series);
+}
+
+export async function readSeriesMetadata(page: Page, series: CompatibleSeries): Promise<SeriesMetadata> {
+  const title = await readSeriesTitle(page, series);
+  const sourceMetadata = await page.evaluate(() => {
+    const meta = (selectors: string[]) => {
+      for (const selector of selectors) {
+        const value = document.querySelector<HTMLMetaElement>(selector)?.content?.trim();
+        if (value) return value;
+      }
+      return "";
+    };
+    const text = (selectors: string[]) => {
+      for (const selector of selectors) {
+        const value = document.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim();
+        if (value) return value;
+      }
+      return "";
+    };
+    const image = (selectors: string[]) => {
+      for (const selector of selectors) {
+        const element = document.querySelector<HTMLImageElement>(selector);
+        const value = element?.currentSrc || element?.src || element?.dataset.src || element?.dataset.original || element?.getAttribute("data-lazy-src") || "";
+        if (value) return value;
+      }
+      return "";
+    };
+    const structuredData = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')).flatMap(script => {
+      try {
+        const parsed = JSON.parse(script.textContent || "") as Record<string, unknown> | Record<string, unknown>[];
+        const entries = Array.isArray(parsed) ? parsed : [parsed];
+        return entries.flatMap(entry => Array.isArray(entry["@graph"]) ? entry["@graph"] as Record<string, unknown>[] : [entry]);
+      } catch {
+        return [] as Record<string, unknown>[];
+      }
+    });
+    const structuredSeries = structuredData.find(entry => {
+      const type = entry["@type"];
+      const types = Array.isArray(type) ? type : [type];
+      return types.some(value => /movie|tvseries|creativework|videoobject/i.test(String(value)));
+    }) || {};
+    const structuredImage = structuredSeries.image;
+    const structuredCover = typeof structuredImage === "string"
+      ? structuredImage
+      : Array.isArray(structuredImage)
+        ? String(structuredImage[0] || "")
+        : structuredImage && typeof structuredImage === "object"
+          ? String((structuredImage as Record<string, unknown>).url || "")
+          : "";
+    const styledCover = Array.from(document.querySelectorAll<HTMLElement>('[style*="background-image"]')).map(element => {
+      const match = element.style.backgroundImage.match(/url\(["']?(.+?)["']?\)/i);
+      return match?.[1] || "";
+    }).find(Boolean) || "";
+
+    return {
+      description: meta(['meta[property="og:description"]', 'meta[name="description"]', 'meta[name="twitter:description"]'])
+        || String(structuredSeries.description || "")
+        || text(['[itemprop="description"]', '.drama-description', '.series-description', '.description', '.synopsis', '#description', 'main p', 'article p']),
+      coverImageUrl: meta(['meta[property="og:image"]', 'meta[name="twitter:image"]'])
+        || structuredCover
+        || image(['[itemprop="image"]', '.drama-poster img', '.series-poster img', '.poster img', '.cover img', 'img[src*="/uploads/"]', 'main img', 'article img'])
+        || styledCover,
+    };
+  }).catch(() => ({ description: "", coverImageUrl: "" }));
+
+  return {
+    title,
+    description: sourceMetadata.description.replace(/\s+/g, " ").trim() || "No description was published in the accessible source page.",
+    coverImageUrl: sourceMetadata.coverImageUrl ? new URL(sourceMetadata.coverImageUrl, series.detailUrl).toString() : "",
+    sourcePageUrl: series.detailUrl,
+  };
 }
 
 async function requestAnchor<T>(path: string, init: RequestInit): Promise<T> {
@@ -300,11 +431,14 @@ export async function openSeriesConnection(rawUrl: string): Promise<SeriesConnec
         links => links.map(link => (link as HTMLAnchorElement).href),
       );
       const initialVideoSource = await waitForIdramaVideoSource(page).catch(() => undefined);
+      const metadata = await readSeriesMetadata(page, series);
       return {
         sessionId: session.id,
         browser,
         page,
         series,
+        title: metadata.title,
+        metadata,
         total: parseIdramaEpisodeCount(episodeLinks),
         initialVideoSource,
       };
@@ -319,7 +453,8 @@ export async function openSeriesConnection(rawUrl: string): Promise<SeriesConnec
       await page.waitForTimeout(2_500);
     }
 
-    return { sessionId: session.id, browser, page, series, total: parseEpisodeCount(pageText) };
+    const metadata = await readSeriesMetadata(page, series);
+    return { sessionId: session.id, browser, page, series, title: metadata.title, metadata, total: parseEpisodeCount(pageText) };
   } catch (error) {
     await browser?.close().catch(() => undefined);
     await deleteAnchorSession(session.id);
@@ -338,6 +473,7 @@ export async function fetchEpisodeFromConnection(
         return {
           episode,
           streamUrl: connection.initialVideoSource,
+          subtitleTracks: "",
           qualityLabel: `Server ${connection.series.server} - iDrama`,
           playerApiUrl,
           status: "Verified",
@@ -352,6 +488,7 @@ export async function fetchEpisodeFromConnection(
       return {
         episode,
         streamUrl: extractIdramaVideoSource(pageHtml),
+        subtitleTracks: "",
         qualityLabel: `Server ${connection.series.server} - iDrama`,
         playerApiUrl,
         status: "Verified",
@@ -397,6 +534,7 @@ export async function fetchEpisodeFromConnection(
         lastResult = {
           episode,
           streamUrl: "",
+          subtitleTracks: "",
           qualityLabel: "Server 1",
           playerApiUrl,
           status: error instanceof Error ? error.message : "Episode request failed",
@@ -407,13 +545,14 @@ export async function fetchEpisodeFromConnection(
     }
 
     return {
-      ...(lastResult ?? { episode, streamUrl: "", qualityLabel: "Server 1", playerApiUrl, status: "Episode request failed" }),
+      ...(lastResult ?? { episode, streamUrl: "", subtitleTracks: "", qualityLabel: "Server 1", playerApiUrl, status: "Episode request failed" }),
       status: `Unavailable after ${DRAMABOX_MAX_ATTEMPTS} attempts: ${lastResult?.status ?? "Episode request failed"}`,
     };
   } catch (error) {
     return {
       episode,
       streamUrl: "",
+      subtitleTracks: "",
       qualityLabel: "Server 1",
       playerApiUrl,
       status: error instanceof Error ? error.message : "Episode request failed",

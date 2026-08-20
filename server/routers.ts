@@ -31,6 +31,10 @@ type ExtractionJob = {
   workbookBase64: string | null;
   fileName: string | null;
   sourceUrl: string;
+  title: string;
+  metadata: SeriesConnection["metadata"];
+  sourceTotal: number;
+  sampleEpisodeLimit: number | null;
   mode: ExtractionMode;
   runCompleted: number;
   runTotal: number;
@@ -56,13 +60,16 @@ function progressResponse(job: ExtractionJob) {
     runCompleted: job.runCompleted,
     runTotal: job.runTotal,
     revision: job.revision,
+    title: job.title,
+    sourceTotal: job.sourceTotal,
+    sampleEpisodeLimit: job.sampleEpisodeLimit,
     ...summarizeEpisodeResults(job.episodes),
   };
 }
 
 async function finishJob(job: ExtractionJob) {
-  job.workbookBase64 = createWorkbookBase64(job.episodes);
-  job.fileName = makeWorkbookFileName();
+  job.workbookBase64 = createWorkbookBase64(job.episodes, job.metadata);
+  job.fileName = makeWorkbookFileName(job.title);
   job.state = "completed";
   await closeSeriesConnection(job.connection);
   job.connection = null;
@@ -91,40 +98,49 @@ export const appRouter = router({
 
   extract: router({
     start: publicProcedure
-      .input(z.object({ url: z.string().trim().min(1).max(2_000) }))
+      .input(z.object({ url: z.string().trim().min(1).max(2_000), sampleEpisodes: z.number().int().min(1).max(10).optional() }))
       .mutation(async ({ input }) => {
         parseCompatibleSeriesUrl(input.url);
         const connection = await openSeriesConnection(input.url);
+        const sampleEpisodeLimit = input.sampleEpisodes ?? null;
+        const total = sampleEpisodeLimit ? Math.min(connection.total, sampleEpisodeLimit) : connection.total;
         const id = crypto.randomUUID();
         extractionJobs.set(id, {
           id,
           state: "processing",
           completed: 0,
-          total: connection.total,
+          total,
           error: null,
           episodes: [],
           connection,
           workbookBase64: null,
           fileName: null,
           sourceUrl: input.url,
+          title: connection.title,
+          metadata: connection.metadata,
+          sourceTotal: connection.total,
+          sampleEpisodeLimit,
           mode: "initial",
           runCompleted: 0,
-          runTotal: connection.total,
+          runTotal: total,
           retryEpisodes: [],
           revision: 0,
         });
         return {
           jobId: id,
           completed: 0,
-          total: connection.total,
+          total,
           state: "processing" as const,
           error: null,
           mode: "initial" as const,
           runCompleted: 0,
-          runTotal: connection.total,
+          runTotal: total,
           revision: 0,
           verified: 0,
           unavailable: 0,
+          title: connection.title,
+          sourceTotal: connection.total,
+          sampleEpisodeLimit,
         };
       }),
     advance: publicProcedure

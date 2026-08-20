@@ -12,7 +12,11 @@
 
 DramaBox extraction is intentionally sequential, with a maximum of three per-episode attempts and a 20-second request timeout per attempt. It continues to the next episode after an unavailable result and the retry-only action later retries just those rows. The recent supplied 48-episode DramaBox series completed with 48 URLs, so no current high-load source failure was reproduced. A source-side verification page or unavailable player response is recorded as an unavailable row rather than retried indefinitely.
 
-The workbook exports the primary player stream URL, server label, source request URL, and status. The supported DramaBox and iDrama payloads used by the extractor do not currently publish subtitle-track fields. When captions are visible in a source player, they may be embedded in the video image or controlled by a separate player track; neither can be inferred safely from the primary stream URL alone.
+The workbook exports the primary player stream URL, server label, source request URL, and status. The inspected DramaBox player response explicitly publishes a `subtitles` array with language and `.srt` URL values. The extractor now exports those source-published tracks in a dedicated **Subtitle Tracks** workbook column. iDrama is unchanged: its accessible page source currently exposes the HLS stream but no equivalent published subtitle-track field.
+
+A live 48-episode DramaBox browser run completed after the export update. The same live provider response was read through the workbook generator and produced the expected Subtitle Tracks header plus populated English and Chinese `.srt` links for episode 1. The browser-downloaded file itself remains in the connected local browser rather than the sandbox, so direct file inspection requires the user to upload that downloaded workbook if exact browser-file verification is needed.
+
+On the supplied DramaFren page, English dialogue is visibly rendered over the embedded player image, while the page's published text and external player host do not expose a separate subtitle-track URL. This supports the distinction between a subtitle-bearing player experience and a primary stream URL that does not itself carry an exported caption reference.
 
 ## Release status
 

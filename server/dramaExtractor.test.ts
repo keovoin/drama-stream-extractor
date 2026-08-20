@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
 import {
   buildPlayerApiUrl,
   createWorkbookBase64,
   extractIdramaVideoSource,
+  formatSubtitleTracks,
   idramaRetryMessage,
+  makeWorkbookFileName,
   normalizeEpisodePayload,
   parseCompatibleSeriesUrl,
   parseEpisodeCount,
   parseIdramaEpisodeCount,
+  readSeriesMetadata,
   replaceEpisodeResult,
   shouldRetryDramaBoxPayload,
   summarizeEpisodeResults,
+  titleFromSlug,
 } from "./dramaExtractor";
 
 describe("DramaBox/DramaFren extractor helpers", () => {
@@ -62,11 +67,45 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     expect(() => parseEpisodeCount("No episode information")).toThrow("episode count");
   });
 
+  it("collects normalized source metadata without requiring episode extraction", async () => {
+    const page = {
+      locator: () => ({ first: () => ({ innerText: async () => "The Godfather's Guardian Angel" }) }),
+      title: async () => "dramabox.dramafren.org",
+      evaluate: async () => ({
+        description: "A  source-published\nseries description.",
+        coverImageUrl: "/covers/godfather.jpg",
+      }),
+    };
+
+    await expect(readSeriesMetadata(page as never, series)).resolves.toEqual({
+      title: "The Godfather's Guardian Angel",
+      description: "A source-published series description.",
+      coverImageUrl: "https://dramabox.dramafren.org/covers/godfather.jpg",
+      sourcePageUrl: "https://dramabox.dramafren.org/index.php?page=detail&id=42000023494&lang=en&slug=the-godfather-s-guardian-angel",
+    });
+  });
+
+  it("uses an explicit source-unavailable description when no description is published", async () => {
+    const page = {
+      locator: () => ({ first: () => ({ innerText: async () => "" }) }),
+      title: async () => "dramabox.dramafren.org",
+      evaluate: async () => ({ description: "", coverImageUrl: "" }),
+    };
+
+    await expect(readSeriesMetadata(page as never, series)).resolves.toMatchObject({
+      title: "The Godfather S Guardian Angel",
+      description: "No description was published in the accessible source page.",
+      coverImageUrl: "",
+      sourcePageUrl: series.detailUrl,
+    });
+  });
+
   it("preserves failed episode rows and generates an Excel workbook", () => {
     const apiUrl = buildPlayerApiUrl(series, 1);
     const verified = normalizeEpisodePayload(1, apiUrl, {
       ok: true,
       videoUrl: "https://cdn.example.com/episode-1.mp4",
+      subtitles: [{ subtitleLanguage: "en", url: "https://cdn.example.com/episode-1.en.srt" }],
       qualities: [{ quality: "Server 1 720p", url: "https://cdn.example.com/episode-1.mp4" }],
     });
     const failed = normalizeEpisodePayload(2, buildPlayerApiUrl(series, 2), {
@@ -76,8 +115,43 @@ describe("DramaBox/DramaFren extractor helpers", () => {
 
     expect(verified.status).toBe("Verified");
     expect(verified.qualityLabel).toBe("Server 1 720p");
+    expect(verified.subtitleTracks).toBe("en: https://cdn.example.com/episode-1.en.srt");
     expect(failed.status).toBe("Video unavailable");
-    expect(createWorkbookBase64([verified, failed])).toMatch(/^UEsDB/);
+    const workbook = createWorkbookBase64([verified, failed], {
+      title: "The Godfather's Guardian Angel",
+      description: "A source-published series description.",
+      coverImageUrl: "https://images.example.com/godfather-cover.jpg",
+    });
+    expect(workbook).toMatch(/^UEsDB/);
+    const parsedWorkbook = XLSX.read(workbook, { type: "base64" });
+    const sheet = parsedWorkbook.Sheets["Stream URLs"];
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1 });
+    expect(rows[0]).toContain("Subtitle Tracks");
+    expect(rows[1]).toContain("en: https://cdn.example.com/episode-1.en.srt");
+    const informationRows = XLSX.utils.sheet_to_json<(string | number)[]>(parsedWorkbook.Sheets["Series Info"], { header: 1 });
+    expect(informationRows).toEqual(
+      expect.arrayContaining([
+        ["Title", "The Godfather's Guardian Angel"],
+        ["Description", "A source-published series description."],
+        ["Cover image URL", "https://images.example.com/godfather-cover.jpg"],
+      ]),
+    );
+  });
+
+  it("formats only source-published subtitle-track links", () => {
+    expect(
+      formatSubtitleTracks([
+        { subtitleLanguage: "en", url: "https://cdn.example.com/en.srt" },
+        { subtitleLanguage: "zh", src: "https://cdn.example.com/zh.srt" },
+      ]),
+    ).toBe("en: https://cdn.example.com/en.srt\nzh: https://cdn.example.com/zh.srt");
+    expect(formatSubtitleTracks()).toBe("");
+  });
+
+  it("creates safe title-based workbook filenames", () => {
+    expect(makeWorkbookFileName("The Queen's Return: 2026!")).toBe("the-queen-s-return-2026-stream-urls.xlsx");
+    expect(makeWorkbookFileName()).toBe("drama-stream-urls.xlsx");
+    expect(titleFromSlug(series)).toBe("The Godfather S Guardian Angel");
   });
 
   it("retries only empty DramaBox player responses and summarizes partial results", () => {
@@ -86,20 +160,21 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     expect(shouldRetryDramaBoxPayload({ ok: false, error: "Player request timed out" })).toBe(true);
 
     const summary = summarizeEpisodeResults([
-      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
-      { episode: 2, streamUrl: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts: Player request timed out" },
+      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", subtitleTracks: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
+      { episode: 2, streamUrl: "", subtitleTracks: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts: Player request timed out" },
     ]);
     expect(summary).toEqual({ verified: 1, unavailable: 1 });
   });
 
   it("replaces only a retried failed row while retaining previously captured URLs", () => {
     const original = [
-      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
-      { episode: 2, streamUrl: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts" },
+      { episode: 1, streamUrl: "https://cdn.example.com/episode-1.mp4", subtitleTracks: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/1", status: "Verified" },
+      { episode: 2, streamUrl: "", subtitleTracks: "", qualityLabel: "Server 1", playerApiUrl: "https://api.example.com/2", status: "Unavailable after 3 attempts" },
     ];
     const retried = replaceEpisodeResult(original, {
       episode: 2,
       streamUrl: "https://cdn.example.com/episode-2.mp4",
+      subtitleTracks: "",
       qualityLabel: "Server 1",
       playerApiUrl: "https://api.example.com/2",
       status: "Verified after 2 attempts",
