@@ -3,11 +3,12 @@ import * as XLSX from "xlsx";
 
 const DRAMABOX_HOST = "dramabox.dramafren.org";
 const IDRAMA_HOST = "idrama.dramafren.org";
+const DRAMAWAVE_HOST = "dramawave.dramafren.org";
 const SHORTWAVE_HOST = "shortwave.dramafren.org";
 const DRAMAFREN_HOST = "dramafren.org";
 const ANCHOR_API_BASE = "https://api.anchorbrowser.io/v1";
 
-export type StreamProvider = "dramabox" | "idrama";
+export type StreamProvider = "dramabox" | "idrama" | "dramawave";
 
 export type CompatibleSeries = {
   provider: StreamProvider;
@@ -77,6 +78,7 @@ export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
 
   const dramaId = url.searchParams.get("id")?.trim();
   const hasNumericId = Boolean(dramaId && /^\d+$/.test(dramaId));
+  const hasDramaWaveId = Boolean(dramaId && /^[A-Za-z0-9_-]+$/.test(dramaId));
   const lang = url.searchParams.get("lang")?.trim() || "en";
 
   if (url.protocol === "https:" && url.hostname === SHORTWAVE_HOST && url.searchParams.get("id")) {
@@ -104,6 +106,17 @@ export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
 
   if (
     url.protocol === "https:" &&
+    url.hostname === DRAMAWAVE_HOST &&
+    url.pathname === "/index.php" &&
+    url.searchParams.get("page") === "detail" &&
+    hasDramaWaveId &&
+    dramaId
+  ) {
+    return { provider: "dramawave", detailUrl: url.toString(), dramaId, lang, server: 1, initialEpisode: 1 };
+  }
+
+  if (
+    url.protocol === "https:" &&
     url.hostname === IDRAMA_HOST &&
     url.pathname === "/index.php" &&
     url.searchParams.get("page") === "watch" &&
@@ -122,7 +135,7 @@ export function parseCompatibleSeriesUrl(rawUrl: string): CompatibleSeries {
     };
   }
 
-  throw new Error("Use a DramaBox series-detail URL or an iDrama watch URL with a numeric id parameter.");
+  throw new Error("Use a DramaBox or DramaWave series-detail URL, or an iDrama watch URL with a supported id parameter.");
 }
 
 export function parseEpisodeCount(pageText: string): number {
@@ -135,8 +148,17 @@ export function parseEpisodeCount(pageText: string): number {
 }
 
 export function buildPlayerApiUrl(series: CompatibleSeries, episode: number): string {
-  const endpoint = new URL(`https://${series.provider === "idrama" ? IDRAMA_HOST : DRAMABOX_HOST}/index.php`);
+  const host = series.provider === "idrama" ? IDRAMA_HOST : series.provider === "dramawave" ? DRAMAWAVE_HOST : DRAMABOX_HOST;
+  const endpoint = new URL(`https://${host}/index.php`);
   if (series.provider === "idrama") {
+    endpoint.searchParams.set("page", "watch");
+    endpoint.searchParams.set("id", series.dramaId);
+    endpoint.searchParams.set("ep", String(episode));
+    endpoint.searchParams.set("server", String(series.server));
+    endpoint.searchParams.set("lang", series.lang);
+    return endpoint.toString();
+  }
+  if (series.provider === "dramawave") {
     endpoint.searchParams.set("page", "watch");
     endpoint.searchParams.set("id", series.dramaId);
     endpoint.searchParams.set("ep", String(episode));
@@ -165,6 +187,45 @@ export function extractIdramaVideoSource(scriptText: string): string {
   const match = scriptText.match(/var\s+videoSrc\s*=\s*["']([^"']+)["']/i);
   if (!match?.[1]) throw new Error("The iDrama watch page did not expose a playable HLS source.");
   return match[1].replace(/\\\//g, "/").replace(/&amp;/g, "&");
+}
+
+function extractInlineJsonArray(scriptText: string, variableName: string): unknown[] {
+  const match = scriptText.match(new RegExp(`(?:const|let|var)\\s+${variableName}\\s*=\\s*(\\[[\\s\\S]*?\\]);`, "i"));
+  if (!match?.[1]) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function extractDramaWavePlayerPayload(scriptText: string, watchUrl: string): PlayerPayload {
+  const qualities = extractInlineJsonArray(scriptText, "qualityOptions")
+    .map(item => ({
+      quality: typeof item === "object" && item ? String((item as Record<string, unknown>).label || "HLS") : "HLS",
+      url: typeof item === "object" && item ? String((item as Record<string, unknown>).url || "") : "",
+    }))
+    .filter(item => Boolean(item.url));
+  const subtitles = extractInlineJsonArray(scriptText, "subtitleOptions")
+    .map(item => {
+      const record = typeof item === "object" && item ? item as Record<string, unknown> : {};
+      const relativeUrl = String(record.url || "");
+      return {
+        subtitleLanguage: String(record.label || record.lang_code || "Subtitle"),
+        url: relativeUrl ? new URL(relativeUrl, watchUrl).toString() : "",
+      };
+    })
+    .filter(item => Boolean(item.url));
+  const videoUrl = qualities[0]?.url || "";
+  return {
+    ok: Boolean(videoUrl),
+    videoUrl,
+    sourceLabel: qualities[0]?.quality || "HLS",
+    qualities,
+    subtitles,
+    error: videoUrl ? undefined : "The DramaWave watch page did not expose an HLS quality source.",
+  };
 }
 
 export function idramaRetryMessage(pageText: string): string | null {
@@ -292,78 +353,46 @@ export function titleFromSlug(series: CompatibleSeries): string {
 async function readSeriesTitle(page: Page, series: CompatibleSeries): Promise<string> {
   const heading = await page.locator("h1").first().innerText().catch(() => "");
   const pageTitle = await page.title().catch(() => "");
-  const candidate = (heading || pageTitle || "").replace(/\s+/g, " ").replace(/\s*[|–-]\s*(DramaBox|iDrama).*$/i, "").trim();
-  if (candidate && !/^(dramabox|idrama|dramabox\.dramafren\.org|idrama\.dramafren\.org)$/i.test(candidate)) return candidate;
+  const candidate = (heading || pageTitle || "").replace(/\s+/g, " ").replace(/\s*[|–-]\s*(DramaBox|iDrama|DramaWave).*$/i, "").trim();
+  if (candidate && !/^(dramabox|idrama|dramawave|dramabox\.dramafren\.org|idrama\.dramafren\.org|dramawave\.dramafren\.org)$/i.test(candidate)) return candidate;
   return titleFromSlug(series);
 }
 
 export async function readSeriesMetadata(page: Page, series: CompatibleSeries): Promise<SeriesMetadata> {
   const title = await readSeriesTitle(page, series);
-  const sourceMetadata = await page.evaluate(() => {
-    const meta = (selectors: string[]) => {
-      for (const selector of selectors) {
-        const value = document.querySelector<HTMLMetaElement>(selector)?.content?.trim();
-        if (value) return value;
-      }
-      return "";
-    };
-    const text = (selectors: string[]) => {
-      for (const selector of selectors) {
-        const value = document.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim();
-        if (value) return value;
-      }
-      return "";
-    };
-    const image = (selectors: string[]) => {
-      for (const selector of selectors) {
-        const element = document.querySelector<HTMLImageElement>(selector);
-        const value = element?.currentSrc || element?.src || element?.dataset.src || element?.dataset.original || element?.getAttribute("data-lazy-src") || "";
-        if (value) return value;
-      }
-      return "";
-    };
-    const structuredData = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')).flatMap(script => {
-      try {
-        const parsed = JSON.parse(script.textContent || "") as Record<string, unknown> | Record<string, unknown>[];
-        const entries = Array.isArray(parsed) ? parsed : [parsed];
-        return entries.flatMap(entry => Array.isArray(entry["@graph"]) ? entry["@graph"] as Record<string, unknown>[] : [entry]);
-      } catch {
-        return [] as Record<string, unknown>[];
-      }
-    });
-    const structuredSeries = structuredData.find(entry => {
-      const type = entry["@type"];
-      const types = Array.isArray(type) ? type : [type];
-      return types.some(value => /movie|tvseries|creativework|videoobject/i.test(String(value)));
-    }) || {};
-    const structuredImage = structuredSeries.image;
-    const structuredCover = typeof structuredImage === "string"
-      ? structuredImage
-      : Array.isArray(structuredImage)
-        ? String(structuredImage[0] || "")
-        : structuredImage && typeof structuredImage === "object"
-          ? String((structuredImage as Record<string, unknown>).url || "")
-          : "";
-    const styledCover = Array.from(document.querySelectorAll<HTMLElement>('[style*="background-image"]')).map(element => {
-      const match = element.style.backgroundImage.match(/url\(["']?(.+?)["']?\)/i);
-      return match?.[1] || "";
-    }).find(Boolean) || "";
+  const readAttribute = async (selector: string, attribute: string) =>
+    (await page.locator(selector).first().getAttribute(attribute).catch(() => null))?.trim() || "";
+  const readText = async (selector: string) =>
+    (await page.locator(selector).first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
 
-    return {
-      description: meta(['meta[property="og:description"]', 'meta[name="description"]', 'meta[name="twitter:description"]'])
-        || String(structuredSeries.description || "")
-        || text(['[itemprop="description"]', '.drama-description', '.series-description', '.description', '.synopsis', '#description', 'main p', 'article p']),
-      coverImageUrl: meta(['meta[property="og:image"]', 'meta[name="twitter:image"]'])
-        || structuredCover
-        || image(['[itemprop="image"]', '.drama-poster img', '.series-poster img', '.poster img', '.cover img', 'img[src*="/uploads/"]', 'main img', 'article img'])
-        || styledCover,
-    };
-  }).catch(() => ({ description: "", coverImageUrl: "" }));
+  const description =
+    (await readAttribute('meta[property="og:description"]', "content"))
+    || (await readAttribute('meta[name="description"]', "content"))
+    || (await readAttribute('meta[name="twitter:description"]', "content"))
+    || (await readText('[itemprop="description"]'))
+    || (await readText('.drama-description'))
+    || (await readText('.series-description'))
+    || (await readText('.description'))
+    || (await readText('.synopsis'))
+    || (await readText('#description'))
+    || (await readText('main p'))
+    || (await readText('article p'));
+  const coverImageUrl =
+    (await readAttribute('meta[property="og:image"]', "content"))
+    || (await readAttribute('meta[name="twitter:image"]', "content"))
+    || (await readAttribute('[itemprop="image"]', "src"))
+    || (await readAttribute('.drama-poster img', "src"))
+    || (await readAttribute('.series-poster img', "src"))
+    || (await readAttribute('.poster img', "src"))
+    || (await readAttribute('.cover img', "src"))
+    || (await readAttribute('img[src*="/uploads/"]', "src"))
+    || (await readAttribute('main img', "src"))
+    || (await readAttribute('article img', "src"));
 
   return {
     title,
-    description: sourceMetadata.description.replace(/\s+/g, " ").trim() || "No description was published in the accessible source page.",
-    coverImageUrl: sourceMetadata.coverImageUrl ? new URL(sourceMetadata.coverImageUrl, series.detailUrl).toString() : "",
+    description: description.replace(/\s+/g, " ").trim() || "No description was published in the accessible source page.",
+    coverImageUrl: coverImageUrl ? new URL(coverImageUrl, series.detailUrl).toString() : "",
     sourcePageUrl: series.detailUrl,
   };
 }
@@ -493,6 +522,16 @@ export async function fetchEpisodeFromConnection(
         playerApiUrl,
         status: "Verified",
       };
+    }
+
+    if (connection.series.provider === "dramawave") {
+      const pageHtml = await connection.page.evaluate(async endpoint => {
+        const response = await fetch(endpoint, { credentials: "same-origin" });
+        const body = await response.text();
+        if (!response.ok) throw new Error(`DramaWave watch page returned HTTP ${response.status}`);
+        return body;
+      }, playerApiUrl);
+      return normalizeEpisodePayload(episode, playerApiUrl, extractDramaWavePlayerPayload(pageHtml, playerApiUrl));
     }
 
     let lastResult: EpisodeResult | undefined;

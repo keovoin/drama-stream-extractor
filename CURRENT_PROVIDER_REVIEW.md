@@ -1,5 +1,15 @@
 # Current provider review
 
+## DramaWave review — 2026-08-20
+
+The supplied DramaWave detail page (`id=FcGQ4Mx7s0`) visibly exposes the title **Step Back! I'm the True Crown Prince**, an 88-episode selector, a published synopsis, and a cover image. The next review step is limited to the public first-episode watch/player pattern to determine whether a compatible per-episode source is exposed without bypassing a restriction.
+
+Episode 1 opens at the published `page=watch&id=FcGQ4Mx7s0&ep=1&lang=en-US` route. Its UI exposes three servers, a subtitle panel, and video-quality controls. The raw page markup is being inspected for the corresponding public player configuration; no restriction-bypass mechanism is being used.
+
+The public Episode 1 markup publishes an HLS entry in `qualityOptions` and language-labelled subtitle proxy URLs in `subtitleOptions`; Episode 2 renders through the same public watch route and player UI with no observed previous-episode gate. This is a compatible pattern for the existing sequential, bounded, Quick test workflow.
+
+The source detail markup also publishes `og:description` and `og:image` values for this title, alongside an `h1` heading and an 88-episode count. The live three-episode sample verified the HLS stream and multiple source subtitle links; no request beyond Episode 3 was made.
+
 ## Supplied DramaFren page
 
 `https://dramafren.org/watch/i-dumped-my-chancellor-husband/` loads as a single watch page with one embedded **Abyss** player. The visible page does not publish an episode matrix, a per-episode API route, or subtitle-track metadata. Its visible player subtitles are part of the external embedded experience rather than fields exposed in the extractor's stream workbook.

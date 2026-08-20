@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import {
   buildPlayerApiUrl,
   createWorkbookBase64,
+  extractDramaWavePlayerPayload,
   extractIdramaVideoSource,
   formatSubtitleTracks,
   idramaRetryMessage,
@@ -51,8 +52,29 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     expect(idramaRetryMessage("The episode selector is ready")).toBeNull();
   });
 
+  it("accepts DramaWave detail pages and parses its published HLS and subtitle configuration", () => {
+    const dramawave = parseCompatibleSeriesUrl(
+      "https://dramawave.dramafren.org/index.php?page=detail&id=FcGQ4Mx7s0&lang=en-US",
+    );
+    expect(dramawave.provider).toBe("dramawave");
+    expect(buildPlayerApiUrl(dramawave, 2)).toBe(
+      "https://dramawave.dramafren.org/index.php?page=watch&id=FcGQ4Mx7s0&ep=2&server=1&lang=en-US",
+    );
+    const payload = extractDramaWavePlayerPayload(
+      'const subtitleOptions = [{"lang_code":"en-US","label":"English","url":"?proxy_sub=abc"}]; const qualityOptions = [{"label":"HLS","url":"https://video.example.com/episode-1.m3u8"}];',
+      buildPlayerApiUrl(dramawave, 1),
+    );
+    expect(payload).toMatchObject({
+      ok: true,
+      videoUrl: "https://video.example.com/episode-1.m3u8",
+      sourceLabel: "HLS",
+      subtitles: [{ subtitleLanguage: "English", url: "https://dramawave.dramafren.org/index.php?proxy_sub=abc" }],
+    });
+    expect(formatSubtitleTracks(payload.subtitles)).toContain("English: https://dramawave.dramafren.org/index.php?proxy_sub=abc");
+  });
+
   it("rejects unsupported or incomplete detail URLs", () => {
-    expect(() => parseCompatibleSeriesUrl("https://example.com/video")).toThrow("Use a DramaBox series-detail URL or an iDrama watch URL");
+    expect(() => parseCompatibleSeriesUrl("https://example.com/video")).toThrow("Use a DramaBox or DramaWave series-detail URL");
     expect(() => parseCompatibleSeriesUrl("https://shortwave.dramafren.org/?id=6a7c0db4f0cf754ca9d95c7e")).toThrow(
       "ShortWave requires watching at least one minute",
     );
@@ -69,12 +91,15 @@ describe("DramaBox/DramaFren extractor helpers", () => {
 
   it("collects normalized source metadata without requiring episode extraction", async () => {
     const page = {
-      locator: () => ({ first: () => ({ innerText: async () => "The Godfather's Guardian Angel" }) }),
+      locator: (selector: string) => ({ first: () => ({
+        innerText: async () => selector === "h1" ? "The Godfather's Guardian Angel" : "",
+        getAttribute: async () => selector === 'meta[property="og:description"]'
+          ? "A  source-published\nseries description."
+          : selector === 'meta[property="og:image"]'
+            ? "/covers/godfather.jpg"
+            : null,
+      }) }),
       title: async () => "dramabox.dramafren.org",
-      evaluate: async () => ({
-        description: "A  source-published\nseries description.",
-        coverImageUrl: "/covers/godfather.jpg",
-      }),
     };
 
     await expect(readSeriesMetadata(page as never, series)).resolves.toEqual({
@@ -85,11 +110,34 @@ describe("DramaBox/DramaFren extractor helpers", () => {
     });
   });
 
+  it("retains published DramaWave description and cover-image metadata", async () => {
+    const dramawave = parseCompatibleSeriesUrl(
+      "https://dramawave.dramafren.org/index.php?page=detail&id=FcGQ4Mx7s0&lang=en-US",
+    );
+    const page = {
+      locator: (selector: string) => ({ first: () => ({
+        innerText: async () => selector === "h1" ? "Step Back! I'm the True Crown Prince" : "",
+        getAttribute: async () => selector === 'meta[property="og:description"]'
+          ? "Betrayed and killed in his last life, Crown Prince William is reborn."
+          : selector === 'meta[property="og:image"]'
+            ? "https://static-v1.mydramawave.com/vt/prod/cover/example.jpg"
+            : null,
+      }) }),
+      title: async () => "DramaWave Unlocked",
+    };
+
+    await expect(readSeriesMetadata(page as never, dramawave)).resolves.toEqual({
+      title: "Step Back! I'm the True Crown Prince",
+      description: "Betrayed and killed in his last life, Crown Prince William is reborn.",
+      coverImageUrl: "https://static-v1.mydramawave.com/vt/prod/cover/example.jpg",
+      sourcePageUrl: dramawave.detailUrl,
+    });
+  });
+
   it("uses an explicit source-unavailable description when no description is published", async () => {
     const page = {
-      locator: () => ({ first: () => ({ innerText: async () => "" }) }),
+      locator: () => ({ first: () => ({ innerText: async () => "", getAttribute: async () => null }) }),
       title: async () => "dramabox.dramafren.org",
-      evaluate: async () => ({ description: "", coverImageUrl: "" }),
     };
 
     await expect(readSeriesMetadata(page as never, series)).resolves.toMatchObject({
